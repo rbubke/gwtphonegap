@@ -185,7 +185,7 @@ public class FacebookJsImpl implements Facebook {
 		}
 	}
 
-	private native boolean initializeNative(JavaScriptObject options)
+	private native void initializeNative(JavaScriptObject options)
 	/*-{
         options.nativeInterface = $wnd.CDV.FB;
         $wnd.FB.init(options);

@@ -15,6 +15,7 @@
  */
 package com.googlecode.gwtphonegap.client.plugins.facebook.impl;
 
+import com.google.common.collect.Maps;
 import com.google.gwt.core.client.JavaScriptObject;
 import com.google.gwt.event.shared.SimpleEventBus;
 import com.google.web.bindery.event.shared.EventBus;
@@ -26,6 +27,7 @@ import com.googlecode.gwtphonegap.client.plugins.facebook.event.AuthEvent;
 import com.googlecode.gwtphonegap.client.plugins.facebook.event.AuthEvent.AuthEventType;
 import com.googlecode.gwtphonegap.client.plugins.facebook.event.AuthHandler;
 import com.googlecode.gwtphonegap.client.plugins.facebook.jsni.LoginStatus;
+import com.googlecode.gwtphonegap.client.util.JSNIHelper;
 
 import java.util.Map;
 
@@ -38,7 +40,6 @@ public class FacebookBrowserImpl implements Facebook {
 
 	private EventBus handlerManager;
 	private boolean initialized;
-	private boolean loggedIn;
 	private boolean hasHandlers;
 
 	public FacebookBrowserImpl() {
@@ -46,56 +47,88 @@ public class FacebookBrowserImpl implements Facebook {
 	}
 
 	@Override
-	public void initialize() {
-		initialized = true;
-	}
-
-	@Override
 	public HandlerRegistration addAuthHandler(AuthHandler handler) {
-		ensureInitialized();
 		hasHandlers = true;
 		return handlerManager.addHandler(AuthEvent.getType(), handler);
 	}
 
+	/*
+	 * This checks if the Facebook javascript library is installed.
+	 *
+	 * @see
+	 * com.googlecode.gwtphonegap.client.plugins.PhoneGapPlugin#initialize()
+	 */
 	@Override
 	public void initialize(Map<String, Object> options) {
 		initialize();
+		if (options == null) {
+			options = Maps.newHashMap();
+		}
+		options.put("oauth", true);
+		initializeNative(JSNIHelper.createObject(options));
 	}
 
 	@Override
 	public void getLoginStatus(LoginStatusCallback callback, boolean force) {
 		ensureInitialized();
-		callback.onResponse(createLoginStatusMock());
+		getLoginStatusNative(callback, force);
 	}
 
+	/*
+	 * Login into facebook. State is handled by native javascript
+	 * implementation.
+	 *
+	 * @see com.googlecode.gwtphonegap.client.plugins.facebook.Facebook
+	 * #login(java.lang.Iterable, java.lang.String,
+	 * com.googlecode.gwtphonegap.client
+	 * .plugins.facebook.Facebook.LoginCallback)
+	 */
 	@Override
 	public void login(Map<String, Object> options, LoginStatusCallback callback) {
 		ensureInitialized();
-		loggedIn = true;
-		if (callback != null)
-			callback.onResponse(createLoginStatusMock());
+		ensureScope(options);
+		loginNative(JSNIHelper.createObject(options), callback);
 	}
 
+	/*
+	 * Logout from facebook.
+	 *
+	 * @see com.googlecode.gwtphonegap.client.plugins.facebook.Facebook
+	 * #logout(com.googlecode.gwtphonegap.client.plugins.facebook.
+	 * Facebook.LogoutCallback)
+	 */
 	@Override
 	public void logout() {
 		ensureInitialized();
-		loggedIn = false;
-		handlerManager.fireEvent(new AuthEvent(AuthEventType.LOGOUT,
-				createLoginStatusMock()));
+		logoutNative();
 	}
 
+	/*
+	 * Request data by using Facebook's graph path API.
+	 *
+	 * @see com.googlecode.gwtphonegap.client.plugins.facebook.Facebook
+	 * #requestWithGraphPath(java.lang.String, java.util.Map, java.lang.String,
+	 * com .googlecode.gwtphonegap.client.plugins.facebook.Facebook.
+	 * RequestWithGraphPathCallback)
+	 */
 	@Override
-	public <T extends JavaScriptObject> void api(String path,
-												 Map<String, String> options, GenericCallback<T> callback) {
+	public <T extends JavaScriptObject> void api(String path, Map<String, String> options, GenericCallback<T> callback) {
 		ensureInitialized();
-		callback.onResponse((T) createApiResponseMock());
+		apiNative(path, JSNIHelper.createObject(options), callback);
 	}
 
+	/*
+	 * (non-Javadoc)
+	 *
+	 * @see
+	 * com.googlecode.gwtphonegap.client.plugins.facebook.Facebook#ui(java.lang
+	 * .String, java.util.Map,
+	 * com.googlecode.gwtphonegap.client.plugins.facebook.Facebook.UiCallback)
+	 */
 	@Override
-	public <T extends JavaScriptObject> void ui(String method,
-												Map<String, String> options, GenericCallback<T> callback) {
+	public <T extends JavaScriptObject> void ui(String method, Map<String, String> options, GenericCallback<T> callback) {
 		ensureInitialized();
-		// do nothing - can be everything
+		uiNative(JSNIHelper.createObject(options), callback);
 	}
 
 	@Override
@@ -104,44 +137,147 @@ public class FacebookBrowserImpl implements Facebook {
 		handlerManager = eventBus;
 	}
 
-	private native LoginStatus createLoginStatusMock()
-	/*-{
-        var loggedIn = this.@com.googlecode.gwtphonegap.client.plugins.facebook.impl.FacebookBrowserImpl::loggedIn;
-        if (loggedIn) {
-            return {
-                authResponse: {
-                    accessToken: "access.token.mock",
-                    expiresIn: "123456",
-                    userID: "user.mock",
-                    expirationTime: 1844585290
-                },
-                status: "connected"
-            };
-        }
-        return {
-            authResponse: null,
-            status: "notConnected"
-        };
-    }-*/;
+	public void fireAuthLoginEvent(LoginStatus loginStatus) {
+		handlerManager
+				.fireEvent(new AuthEvent(AuthEventType.LOGIN, loginStatus));
+	}
 
-	private native <T> T createApiResponseMock()
-	/*-{
-        return {
-            id: "user_id_mock",
-            first_name: "firstname.mock",
-            last_name: "lastname.mock",
-            link: "http://facebook.com/user_id_mock",
-            username: "username.mock",
-            gender: "male",
-            locale: "de",
-            updated_time: "2013-01-20T07:43:24+0000"
-        };
-    }-*/;
+	public void fireAuthLogoutEvent(LoginStatus loginStatus) {
+		handlerManager.fireEvent(new AuthEvent(AuthEventType.LOGOUT,
+				loginStatus));
+	}
+
+	public void fireAuthResponseChangeEvent(LoginStatus loginStatus) {
+		handlerManager.fireEvent(new AuthEvent(AuthEventType.RESPONSE_CHANGE,
+				loginStatus));
+	}
+
+	public void fireAuthStatusChangeEvent(LoginStatus loginStatus) {
+		handlerManager.fireEvent(new AuthEvent(AuthEventType.STATUS_CHANGE,
+				loginStatus));
+	}
+
+	/*
+	 * (non-Javadoc)
+	 *
+	 * @see
+	 * com.googlecode.gwtphonegap.client.plugins.PhoneGapPlugin#initialize()
+	 */
+	@Override
+	public void initialize() {
+		ensurePluginInstalled();
+		addJsHandlers();
+		initialized = true;
+	}
+
+	private void ensurePluginInstalled() {
+		if (!isPluginInstalled()) {
+			throw new IllegalStateException(
+					"Can't find Facebook plugin - did you include neccessary javascript files?");
+		}
+	}
 
 	private void ensureInitialized() {
 		if (!initialized) {
-			throw new IllegalStateException(
-					"you have to initialize Facebook Plugin before using it");
+			throw new IllegalStateException("you have to initialize Facebook Plugin before using it");
 		}
 	}
+
+	private native void initializeNative(JavaScriptObject options)
+	/*-{
+        $wnd.FB.init(options);
+    }-*/;
+
+	private native boolean isPluginInstalled()
+	/*-{
+        if (!$wnd.FB)
+            return false;
+        return true;
+    }-*/;
+
+	private native void getLoginStatusNative(LoginStatusCallback callback, boolean force)
+	/*-{
+        $wnd.FB.getLoginStatus(
+            function (response) {
+                if (callback)
+                    callback.@com.googlecode.gwtphonegap.client.plugins.facebook.callback.LoginStatusCallback::onResponse(Lcom/googlecode/gwtphonegap/client/plugins/facebook/jsni/LoginStatus;)(response);
+            }, force);
+    }-*/;
+
+	private void ensureScope(Map<String, Object> options) {
+		if (options.get("scope") == null) {
+			options.put("scope", "");
+		}
+	}
+
+	private native void loginNative(JavaScriptObject options,
+									LoginStatusCallback callback)
+	/*-{
+        $wnd.FB.login(
+            function (response) {
+                if (callback) {
+                    callback.@com.googlecode.gwtphonegap.client.plugins.facebook.callback.LoginStatusCallback::onResponse(Lcom/googlecode/gwtphonegap/client/plugins/facebook/jsni/LoginStatus;)(response);
+                }
+            },
+            options);
+    }-*/;
+
+	private native void logoutNative()
+	/*-{
+        $wnd.FB.logout();
+    }-*/;
+
+	private native <T extends JavaScriptObject> void apiNative(String path,
+															   JavaScriptObject options, GenericCallback<T> callback)
+	/*-{
+        $wnd.FB.api(
+            path,
+            options,
+            function (result) {
+                if (callback) {
+                    if (result.error)
+                        callback.@com.googlecode.gwtphonegap.client.plugins.facebook.callback.GenericCallback::onError(Lcom/googlecode/gwtphonegap/client/plugins/facebook/jsni/ErrorResponse;)(result.error);
+                    else {
+                        callback.@com.googlecode.gwtphonegap.client.plugins.facebook.callback.GenericCallback::onResponse(Lcom/google/gwt/core/client/JavaScriptObject;)(result);
+                    }
+                }
+            });
+    }-*/;
+
+	private native <T extends JavaScriptObject> void uiNative(
+			JavaScriptObject options, GenericCallback<T> callback)
+	/*-{
+        $wnd.FB.ui(
+            options,
+            function (result) {
+                if (callback) {
+                    if (result.error)
+                        callback.@com.googlecode.gwtphonegap.client.plugins.facebook.callback.GenericCallback::onError(Lcom/googlecode/gwtphonegap/client/plugins/facebook/jsni/ErrorResponse;)(result.error);
+                    else
+                        callback.@com.googlecode.gwtphonegap.client.plugins.facebook.callback.GenericCallback::onResponse(Lcom/google/gwt/core/client/JavaScriptObject;)(result);
+
+                }
+            });
+    }-*/;
+
+	private native void addJsHandlers()
+	/*-{
+        var that = this;
+        $wnd.FB.Event.subscribe('auth.login',
+            function (response) {
+                that.@com.googlecode.gwtphonegap.client.plugins.facebook.impl.FacebookJsImpl::fireAuthLoginEvent(Lcom/googlecode/gwtphonegap/client/plugins/facebook/jsni/LoginStatus;)(response);
+            });
+        $wnd.FB.Event.subscribe('auth.logout',
+            function (response) {
+                that.@com.googlecode.gwtphonegap.client.plugins.facebook.impl.FacebookJsImpl::fireAuthLogoutEvent(Lcom/googlecode/gwtphonegap/client/plugins/facebook/jsni/LoginStatus;)(response);
+            });
+        $wnd.FB.Event.subscribe('auth.sessionChange',
+            function (response) {
+                that.@com.googlecode.gwtphonegap.client.plugins.facebook.impl.FacebookJsImpl::fireAuthResponseChangeEvent(Lcom/googlecode/gwtphonegap/client/plugins/facebook/jsni/LoginStatus;)(response);
+            });
+        $wnd.FB.Event.subscribe('auth.statusChange',
+            function (response) {
+                that.@com.googlecode.gwtphonegap.client.plugins.facebook.impl.FacebookJsImpl::fireAuthStatusChangeEvent(Lcom/googlecode/gwtphonegap/client/plugins/facebook/jsni/LoginStatus;)(response);
+            });
+    }-*/;
 }

@@ -15,30 +15,26 @@
  */
 package com.googlecode.gwtphonegap.client.util;
 
-import java.util.Map;
-
 import com.google.gwt.core.client.JavaScriptObject;
+
+import java.util.Map;
+import java.util.Map.Entry;
 
 /**
  * @author Ronny Bubke
- * 
  */
 public class JSNIHelper {
 
-	private final static String PATH_SEPARATOR = "[.]";
-
 	/**
 	 * Convenient method to easily get a value from a javascript object.
-	 * 
-	 * @param object
-	 *            the javascript object you want to get the property value from.
-	 * @param propertyPath
-	 *            is the dotted path to the object ( for instance "data.url" or
-	 *            just "id").
+	 *
+	 * @param object       the javascript object you want to get the property value from.
+	 * @param propertyPath is the dotted path to the object ( for instance "data.url" or
+	 *                     just "id").
 	 * @return
 	 */
 	public static <T> T getPropertyValue(JavaScriptObject object,
-			String propertyPath) {
+										 String propertyPath) {
 		String[] pathArray = propertyPath.split(PATH_SEPARATOR);
 		JavaScriptObject pathObject = object;
 		for (int i = 0; i < pathArray.length - 1; i++) {
@@ -49,21 +45,20 @@ public class JSNIHelper {
 		}
 		return getPropertyValueNative(pathObject,
 				pathArray[pathArray.length - 1]);
-
 	}
 
 	private native static <T> T getPropertyValueNative(JavaScriptObject object,
-			String propertyName)
+													   String propertyName)
 	/*-{
-	 	if(object) {
-			return object[propertyName];
-		}
-		return null;
-	}-*/;
+        if (object) {
+            return object[propertyName];
+        }
+        return null;
+    }-*/;
 
 	/**
 	 * Convinient method to map from a map to a javascript object
-	 * 
+	 * <p/>
 	 * <br>
 	 * <code>
 	 * Example:<br>
@@ -72,30 +67,23 @@ public class JSNIHelper {
 	 * becomes:<br>
 	 * { id : "1234", name : "Ronny Bubke" }<br>
 	 * </code>
-	 * 
+	 *
 	 * @param map
 	 * @return
 	 */
 	public static JavaScriptObject createObject(Map<String, ?> map) {
-		String[] keys = null;
-		Object[] values = null;
-		if (map != null) {
-			keys = map.keySet().toArray(new String[0]);
-			values = map.values().toArray(new Object[0]);
+		JavaScriptObject object = JavaScriptObject.createObject();
+		for (Entry<String, ?> entry : map.entrySet()) {
+			enhanceObject(object, entry.getKey(), entry.getValue());
 		}
-		return createObjectNative(keys, values);
+		return object;
 	}
 
-	private static native JavaScriptObject createObjectNative(String[] keys,
-			Object[] values)
+	private static native void enhanceObject(JavaScriptObject o, String key,
+											 Object value)
 	/*-{
-	 	var object = {};
-	 	if(keys && values) {
-		 	for (var i=0;i<keys.length;i++) {
-		 		object[keys[i]] = values[i];
-		 	}
-	 	}
-	 	return object;
-	}-*/;
+        o[key] = value;
+    }-*/;
 
+	private final static String PATH_SEPARATOR = "[.]";
 }
